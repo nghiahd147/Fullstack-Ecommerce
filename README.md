@@ -123,4 +123,129 @@ const userSchema = mongoose.Schema({
         enum: ['customer', 'admin'],
         default: 'customer'
     } 
+},{
+    timestamps: true
+}
+
+)
+
+// mã hóa mật khẩu trước khi lưu vào database
+userSchema.pre("save", async function(next) {
+    if(!this.Modified(this.password)) return next()
+    try {
+        const salt = await bcrypt.salt(10);
+        const hash = await bcrypt.hash(this.password, salt);
+        next(error);
+    } catch(error) {
+        next(error);
+    }
+})
+
+// check login password là mk nhập, this.password là mật khẩu trong dữ liệu
+userSchema.methods.compare = async function(password) {
+    return bcrypt.compare(password, this.password);
+}
+
+export default User
+
+## Logic signup
+
+// Lấy dữ liệu từ req.body (tức lấy ở phần nhập fe)
+const { name, email, password } = req.body
+
+<!-- Nếu email tồn tại -->
+const userExists = await User.findOne({email});
+
+<!-- Thì sẽ trả về thông báo 400 -->
+if(userExists) {
+    return res.status(400).json('Email already exists');
+}
+
+<!-- Còn không tồn tại thì sẽ tạo 1 object -->
+const user = await User.create({
+    name, email, password
+})
+
+<!-- Và trả về thông báo 201 tức là đã tạo thành công -->
+res.status(201).json(user, message: "Create Success")
+
+// tạo model User với dữ liệu userSchema
+User = model('User', userSchema)
+
+export default User
+
+# Redis
+
+import Redis from "ioredis"
+import dotenv from "dotenv"
+
+dotenv.config()
+
+// Kết nối redis bằng upstash
+const redis = new Redis(process.env.UPSTASH_REDIS_URL);
+
+// key-value store (truy vấn foo sẽ trả về bar)
+await redis.set('foo', 'bar');
+
+Run terminal: node .\backend\lib\redis.js
+Xem ở tab: Data Browsers
+
+# Access Token Và Refresh Token
+
+const generateTokens = (userId) => {
+    const accessToken = jwt.sign({userId}, ACCESS_TOKEN_SECRET, {
+        expiresIn: "15m"
+    })
+    const refreshToken = jwt.sign({userId}, REFRESH_TOKEN_SECRET, {
+        expiresIn: "7d"
+    })
+}
+
+const storeRefreshToken =  async(userId, refreshToken) => {
+    await redis.set(`refreshToken:${userId}`, refreshToken, "EX", 7*24*60*60) // 7 days
+}
+
+const setCookies = (res, accessToken, refreshToken) => {
+    res.cookie('accessToken', accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        samSite: "strict",
+        maxAge: 15 * 60 * 1000 // 15 minutes
+    })
+
+    res.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        samSite: "strict",
+        maxAge: 7 * 24 * 60 * 60 // 7 days
+    })
+}
+
+const signup = () => {
+    ....
+
+    const user_id = ...
+
+    const {accessToken, refreshToken} = generateTokens(user._id)
+    await storeRefreshToken(user._id, refreshToken)
+
+    setCookies(res, accessToken, refreshToken)
+
+}
+* Hàm generateTokens
+- Hiểu phiên đăng nhập sẽ tồn tại trong 7 ngày
+- Access token được thay đổi mỗi 15p, access token hết hạn thì refresh token gửi đi nhận 1 access token mới
+-> Nhằm mục đích bảo mật, nếu có hacker lấy được access token họ chỉ có thể sử dụng trong 15p
+
+* Hàm storeRefreshToken
+- redis.set(key, value, "EX", time)
+"EX": hết hạn
+
+* Hàm setCookies
+
+res.cookie('accessToken', accessToken, {
+    httpOnly: true, // ngăn không cho javascript truy cập cookie(chống tấn công XSS)
+    secure: process.env.NODE_ENV === "production", // chỉ bật chế độ bảo mật khi ở chế độ production
+    samSite: "strict", // ngăn không cho cookie gửi đến từ các trang web khác (chống tấn công csrf)
+    maxAge: 15 * 60 * 1000 // 15 minutes
 })
