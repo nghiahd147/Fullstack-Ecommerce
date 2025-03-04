@@ -110,7 +110,7 @@ const userSchema = mongoose.Schema({
     },
     cartItems: [
         {
-            quantity: number,
+            quantity: Number,
             default: 1    
         },
         {
@@ -134,8 +134,8 @@ userSchema.pre("save", async function(next) {
     if(!this.Modified(this.password)) return next()
     try {
         const salt = await bcrypt.salt(10);
-        const hash = await bcrypt.hash(this.password, salt);
-        next(error);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
     } catch(error) {
         next(error);
     }
@@ -145,6 +145,9 @@ userSchema.pre("save", async function(next) {
 userSchema.methods.compare = async function(password) {
     return bcrypt.compare(password, this.password);
 }
+
+// tạo model User với dữ liệu userSchema
+const User = mongoose.model('User', userSchema)
 
 export default User
 
@@ -168,11 +171,6 @@ const user = await User.create({
 
 <!-- Và trả về thông báo 201 tức là đã tạo thành công -->
 res.status(201).json(user, message: "Create Success")
-
-// tạo model User với dữ liệu userSchema
-User = model('User', userSchema)
-
-export default User
 
 # Redis
 
@@ -199,8 +197,10 @@ const generateTokens = (userId) => {
     const refreshToken = jwt.sign({userId}, REFRESH_TOKEN_SECRET, {
         expiresIn: "7d"
     })
+    return { accessToken, refreshToken }
 }
 
+// Dùng redis bởi vì nó có tự động hết hạn EX giúp tự động xóa token phải đăng nhập lại để lấy refreshtoken mới và bảo mật chống hacker tốt hơn
 const storeRefreshToken =  async(userId, refreshToken) => {
     await redis.set(`refreshToken:${userId}`, refreshToken, "EX", 7*24*60*60) // 7 days
 }
@@ -209,14 +209,14 @@ const setCookies = (res, accessToken, refreshToken) => {
     res.cookie('accessToken', accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        samSite: "strict",
+        sameSite: "strict",
         maxAge: 15 * 60 * 1000 // 15 minutes
     })
 
     res.cookie('refreshToken', refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        samSite: "strict",
+        sameSite: "strict",
         maxAge: 7 * 24 * 60 * 60 // 7 days
     })
 }
@@ -226,10 +226,10 @@ const signup = () => {
 
     const user_id = ...
 
-    const {accessToken, refreshToken} = generateTokens(user._id)
-    await storeRefreshToken(user._id, refreshToken)
+    const {accessToken, refreshToken} = generateTokens(user._id) // tạo 
+    await storeRefreshToken(user._id, refreshToken) // gia hạn
 
-    setCookies(res, accessToken, refreshToken)
+    setCookies(res, accessToken, refreshToken) // lưu access, refresh vào cookie
 
 }
 * Hàm generateTokens
@@ -246,6 +246,6 @@ const signup = () => {
 res.cookie('accessToken', accessToken, {
     httpOnly: true, // ngăn không cho javascript truy cập cookie(chống tấn công XSS)
     secure: process.env.NODE_ENV === "production", // chỉ bật chế độ bảo mật khi ở chế độ production
-    samSite: "strict", // ngăn không cho cookie gửi đến từ các trang web khác (chống tấn công csrf)
+    sameSite: "strict", // ngăn không cho cookie gửi đến từ các trang web khác (chống tấn công csrf)
     maxAge: 15 * 60 * 1000 // 15 minutes
 })

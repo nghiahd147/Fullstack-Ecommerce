@@ -1,3 +1,4 @@
+import { redis } from "../lib/redis.js";
 import User from "../model/user.model.js";
 import jwt from "jsonwebtoken"
 const generateTokens = (userId) => {
@@ -20,13 +21,13 @@ const setCookies = async(res, accessToken, refreshToken) => {
   res.cookie('accessToken', accessToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    samSite: "strict",
+    sameSite: "strict",
     maxAge: 15 * 60 * 1000
   })
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    samSite: "strict",
+    sameSite: "strict",
     maxAge: 7 * 24 * 60 * 60
   })
 }
@@ -48,7 +49,12 @@ export const signup = async (req, res) => {
     // setcookies
     setCookies(res, accessToken, refreshToken)
 
-    res.status(201).json({ user, message: "Created success !!!" });
+    res.status(201).json({ user: {
+      _id: user.id,
+      name: user.name,
+      email: user.email,
+      password: user.password
+    }, message: "Created success !!!" });
   } catch (error) {
     res.status(500).json({message: error.message});
   }
