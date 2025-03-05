@@ -190,6 +190,8 @@ Xem ở tab: Data Browsers
 
 # Access Token Và Refresh Token
 
+(Lý do tại sao khi mà lưu refreshToken trong cookie rồi thì dùng redis làm gì: Có thể kiểm soát phiên đăng nhập của người dùng ta có thể giúp người dùng đăng xuất luôn, bảo mật tránh các hành vi tấn công)
+
 const generateTokens = (userId) => {
     const accessToken = jwt.sign({userId}, ACCESS_TOKEN_SECRET, {
         expiresIn: "15m"
@@ -249,3 +251,25 @@ res.cookie('accessToken', accessToken, {
     sameSite: "strict", // ngăn không cho cookie gửi đến từ các trang web khác (chống tấn công csrf)
     maxAge: 15 * 60 * 1000 // 15 minutes
 })
+
+# Logic logout
+
+file server: CookieParser // dùng để chuyển trạng thái sang javascript nhằm decode
+             import CookieParser from 'cookie-parser';
+             app.use(CookieParser());
+----
+
+export const logout = async function() {
+    try{
+        const refreshToken = req.cookies.refreshToken;
+        if(refreshToken) {
+            const decode = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET) // dịch mã token
+            await redis.del(`refreshToken:${decode.userId}`) // xóa refreshToken
+        }
+        res.clearCookie('accessToken')
+        res.clearCookie('refreshToken')
+        res.json({Logged out successfully !!!})
+    } catch(error) {
+        res.status(500).json({message: "Server Error", error: error.message})
+    }
+} 
