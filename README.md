@@ -1,5 +1,3 @@
-// P0MghB8DzqNz6GrD
-
 # Thư viện sử dụng trong dự án
 
 npm i express dotenv mongoose jsonwebtoken stripe cloudinary cookie-parse bcryptjs ioredis
