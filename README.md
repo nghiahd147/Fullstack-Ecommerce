@@ -255,8 +255,8 @@ res.cookie('accessToken', accessToken, {
 # Logic logout
 
 file server: CookieParser // dùng để chuyển trạng thái sang javascript nhằm decode
-             import CookieParser from 'cookie-parser';
-             app.use(CookieParser());
+             import cookieParser from 'cookie-parser';
+             app.use(cookieParser());
 ----
 
 export const logout = async function() {
@@ -273,3 +273,243 @@ export const logout = async function() {
         res.status(500).json({message: "Server Error", error: error.message})
     }
 } 
+
+# Logic Refresh Token
+
+export const refreshToken = async (req, res) => {
+	try {
+		const refreshToken = req.cookies.refreshToken;
+
+		if (!refreshToken) {
+			return res.status(401).json({ message: "No refresh token provided" });
+		}
+
+		const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+		const storedToken = await redis.get(`refreshToken:${decoded.userId}`);
+
+		if (storedToken !== refreshToken) {
+			return res.status(401).json({ message: "Invalid refresh token" });
+		}
+
+		const accessToken = jwt.sign({ userId: decoded.userId }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "15m" });
+
+		res.cookie("accessToken", accessToken, {
+			httpOnly: true,
+			secure: process.env.NODE_ENV === "production",
+			sameSite: "strict",
+			maxAge: 15 * 60 * 1000,
+		});
+
+		res.json({ message: "Token refreshed successfully" });
+	} catch (error) {
+		console.log("Error in refreshToken controller", error.message);
+		res.status(500).json({ message: "Server error", error: error.message });
+	}
+};
+
+- Lấy ra refreshToken trong cookie và decode để lấy refreshtoken trong redis sau đó so sánh với nhau nếu không giống thì báo lỗi
+- Còn không vào trường hợp trên thì tạo accesstoken sau đó lưu vào cookie
+
+# Logic Login
+
+export const login = async (req, res) => {
+	try {
+		const { email, password } = req.body;
+		const user = await User.findOne({ email });
+
+		if (user && (await user.comparePassword(password))) {
+			const { accessToken, refreshToken } = generateTokens(user._id);
+			await storeRefreshToken(user._id, refreshToken);
+			setCookies(res, accessToken, refreshToken);
+
+			res.json({
+				_id: user._id,
+				name: user.name,
+				email: user.email,
+				role: user.role,
+			});
+		} else {
+			res.status(400).json({ message: "Invalid email or password" });
+		}
+	} catch (error) {
+		console.log("Error in login controller", error.message);
+		res.status(500).json({ message: error.message });
+	}
+};
+
+- Lấy ra email và password sau đó check có tồn tại hay không nếu tồn tại thì sẽ lưu accessToken và refreshToken
+
+# Logic Product và middleware có tồn tại access token không và check quyền
+
+1 router
+
+router.get('/', protectRouter, adminRouter, getAllProducts)
+
+- controller:
+
+export const getAllProducts = async (req, res) => {
+    try{
+        const product = await Product.find({});
+        res.json({product})
+    }catch(error) {
+        return res.status(400).json({message: 'Error server', error: error.message});
+    }
+}
+
+- middleware: (trong middleware có 1 tham số là next) nếu dùng next nó sẽ chuyển tiếp tới hàm middleware tiếp theo
+Ví dụ ở trên là: router.get('/', protectRouter, adminRouter, getAllProducts) thí dụ mà xong hàm protectRouter gọi hàm next() thì nó sẽ chuyển tiếp tới hàm tiếp theo
+
+export const protectRouter = async (req, res, next) => {
+    try {
+        const accessToken = req.cookies.accessToken;
+        if(!accessToken) {
+            return res.status(401).json('AccessToken is not defined');
+        }
+        try {
+            const decode = jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET);
+            const user = jwt.findById(decode.userId).select('-password'); // .select('-password) được hiểu là không lấy password
+            if(!user) {
+                return res.json('User is not defined');
+            }
+            req.body = user
+            next(); // chuyển tiếp hàm middleware tiếp theo
+        } catch(error) {
+            if(error.name === "TokenExpiredError") // kiểm tra xem đã hết hạn accessToken hay chưa {
+                return res.status(401).json({message: "Unauthorized - Access token expired"});
+            }
+            throw error 
+        }
+
+    } catch(error) {
+        return res.status(500).json('Unauthorized - Invalid access token')
+    }
+}
+
+export const adminRouter = async (req, res, next) => {
+    try{
+        if(req.user && req.user.role === "admin") {
+            next();
+        } else {
+            return res.status(401).json({message: 'Access denied - Admin only'})
+        }
+    }
+}
+
+## get Featured Product 
+
+export const getFeaturedProduct = (req, res) => {
+    try{
+        let featuredProduct = redis.get('featuredProduct')
+        if(featuredProduct) {
+            return res.json(JSON.parse(featuredProduct))
+        }
+        <!-- Nếu không có trên redis thì lấy từ mongodb những sản phẩm có isFeatured: true, .lean để dữ liệu mongodb thành plain object(nhanh hơn, tiết kiệm bộ nhớ) -->
+        featuredProduct = await Product.find({isFeatured: true}).lean();
+ 
+        if(!featuredProduct) {
+            return res.status(404).json({message: "No featured products found"});
+        }
+
+        await redis.set('featuredProduct', JSON.stringify(featuredProduct))
+
+    }catch(error) {
+        return res.status(500).json({ message: "Server Error", error: error.message });
+    }
+}
+
+# Tạo Product
+
+export const createProducts = async (req, res) => {
+    try{
+        const {name, description, price, image, category} = req.body;
+        if(image) {
+            const cloudinaryResponse = cloudinary.uploader.upload(image, {folder: "product"}); 
+            // nếu có image (tức đã chọn file trong fe) thì sẽ tải ảnh lên cloudinary và lưu vào thư mục product
+        }
+        const product = await Product.create({
+            name,
+            description,
+            price,
+            image: cloudinaryResponse?.secure ? cloudinaryResponse.secure : "",
+            <!-- Nếu có ảnh trong cloudinary thì hiện ảnh còn không bằng chuỗi rỗng -->
+            category
+        });
+    } catch(error) {
+        return res.status(500).json({message: 'Server Error', error: error.message});
+    }
+}
+
+# Logic delete
+
+export const deleteProduct = async (req, res) => {
+    try{
+        const product = User.findById(req.params.id)
+        if(product.image) {
+            const publicId = product.image.split('/').pop().split('.')[0];
+            try{
+                await cloudinary.uploader.destroy(`products/${publicId}`);
+                // vd có link: https://res.cloudinary.com/demo/image/upload/v1672524523/product/abc123.jpg
+                // split("/").pop(): split để chia url thành mảng dựa trên dấu / (hiểu [demo,image,...])
+                // .pop(): là lấy phầm tử cuối tức là abc123.jpg
+                // .split("."): là [abc123, jpg]
+                // .split(".")[0]: là abc123 => bên dưới sẽ xóa product/abc123
+                res.status(200).json({message: 'Delete success'});
+            }catch(error) {
+                res.status(404).json('No deleting image')
+            }
+        }
+        await findByIdAndDelete(req.params.id)
+        res.json('')
+    }catch(error) {
+        return res.status(500).
+    }
+}
+
+<!-- -------------------------------- FRONT-END --------------------------------- -->
+
+store Zustand file useUserStore.jsx:
+
+import {create} from "zustand";
+import axios from '../lib/axios.js';
+import {toast} from "react-hot-toast";
+
+export const useUserStore = create((set, get) => ({
+    user: null,
+    loading: false,
+    checkingAuth: true,
+    signup: async ({name, email, password, confirmPassword}) => {
+        set({loading: true});
+        if(password !== confirmPassword) {
+            set({loading: false})
+            return toast.error("Mật khẩu không giống nhau");
+        }
+        try {
+            const res= await axios.post('api/signup', {name, email, password});
+            set({user: res.data.user, loading: false})
+        } catch (error) {
+            set({loading: false})
+            toast.error(error.response.data.message || "An error occurred");
+        }
+    },
+})) 
+
+- Hiểu ở đây ta đang tạo ra 1 hook chứa các hàm xử lý bên trong, nếu muốn gọi ra dùng thì sẽ gọi ra như sau const {signup} = useUserStore() được hiểu là lấy hàm xử lý signup
+
+- Bên file gọi ta đang có dữ liệu từ formData:
+
+ const handleSubmit = (e) => {
+    e.preventDefault();
+    signup(formData);
+  }
+
+=> nó sẽ truyền vào hàm đó các dữ liệu và lấy ra theo props ({name,...}) => {...}
+
+* Giải thích qua về hàm signup:
+- if(password !== confirmPassword): kiểm tra xem có giống nhau hay không, không giống thì thông báo 2 trường mk không giống nhau
+- const res= await axios.post('api/signup', {name, email, password}); : post api với phương thức có sẵn trong axios
+- create dùng để tạo ra 1 store toàn cục
+- set dùng để cập nhật trạng thái hiện tại
+- get dùng để lấy trạng thái hiện tại
+
+Tiếp theo là sử dụng toast để thông báo: return toast.error("Mật khẩu không giống nhau");
+Ta sẽ khai báo <Toast /> này ở App.jsx để có thể thông báo mọi cái nhưng cần setup ở từng logic
