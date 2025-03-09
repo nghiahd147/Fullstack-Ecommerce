@@ -55,12 +55,7 @@ npm start
 ```
 
 ### 5️⃣ Access the Application
-- **Frontend**: `http://localhost:3000`
+- **Frontend**: `http://localhost:5173`
 - **Backend API**: `http://localhost:5000`
-
-## 📜 License
-This project is open-source and available for modification and distribution.
-
----
 
 💡 **Need Help?** Feel free to open an issue or contribute to the project!
