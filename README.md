@@ -1,515 +1,66 @@
-// P0MghB8DzqNz6GrD
-
-# Thư viện sử dụng trong dự án
-
-npm i express dotenv mongoose jsonwebtoken stripe cloudinary cookie-parse bcryptjs ioredis
-npm i nodemon -D
-
-Giải thích:
-express: Một framework phổ biến cho Node.jsđể xây dựng ứng dụng web và API.
-dotenv: Tải các biến môi trường từ file .env vào process.envđể quản lý các cài đặt cấu hình.
-mongoose: Cung cấp giải pháp dựa trên schema để mô hình hóa dữ liệu trong MongoDB.
-jsonwebtoken: Cho phép tạo và xác minh JSON Web Tokens (JWT) để truyền dữ liệu một cách an toàn giữa các bên.
-stripe: Sử dụng để xử lý thanh toán với API của Stripe.
-cloudinary: Quản lý và tối ưu hóa phương tiện (hình ảnh, video) bằng dịch vụ đám mây của Cloudinary.
-cookie-parser: Phân tích cookies đính kèm vào yêu cầu từ client, sử dụng để quản lý các phiên làm việc của người dùng.
-bcryptjs: Sử dụng để băm mật khẩu cho lưu trữ an toàn.
-ioredis: Thư viện client mạnh mẽ để tương tác với Redis, một kho key-value.
-nodemon: Công cụ phát triển tự động khởi động lại server khi có thay đổi file. Thư viện này được cài đặt dưới dạng phụ thuộc phát triển 
-
-# Setup package
-
-"main": "backend/server.js",
-"scripts": {
-    "dev": "nodemon backend/start",
-    "start": "node backend/server"
-},
-"type": "module", // thêm này vào để dùng import
-
-# Start
-
-import express from "express";
-
-const app = express();
-
-app.listen(5000, () => {
-  console.log("Server is running port 5000");
-});
-
-# Config env
-
-import dotenv from 'dotenv'
-dotenv.config()
-const PORT = process.env.PORT
-
-## app.use
-
-- Xử lý middleware
-VD: 
-    - Ta có 1 file router news:
-        router.get('/', ...)
-        router.get('/:id',...)
-    - 1 file index
-        import routerNews from 'file trên'
-        app.use('/news', routerNews)
--> Được hiểu nếu /news thì sẽ chạy cái get đầu tiên
--> Còn nếu /news/id thì sẽ chạy cái get thứ hai
-
-## res.send('...')
-
-- In ra web 1 cái gì đó
-
-## Tách routes | controllers
-
-- routes:
-router.get("/signup", signup);
-
-- controllers:
-export const signup = async (req, res) => {
-    res.send("signup");
-}
-
-## Connect Mongodb
-
-// P0MghB8DzqNz6GrD => PASSWORD
-// mongodb+srv://qn500787:P0MghB8DzqNz6GrD@cluster0.glcti.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
-
-import mongoose from 'mongoose'
-
-export const connectDb = asyns() => {
-    try {
-        const conn = await mongoose.connect(process.env.MONGO_URL)
-        console.log(`...${conn.connection.host}`)
-    } catch(error) {
-        console.log("...", error.message)
-        process.exit(1) // hiểu sẽ dừng chương trình với 1 lỗi
-    }
-}
-
-Network access -> Add Ip Address -> Sau đó add mặc định 0.0.0.0/0
-
-### Tạo 1 bảng
-
-import mongoose from 'mongoose'
-
-const userSchema = mongoose.Schema({
-    name: {
-        type: String,
-        require: [true, '...']
-    },
-    email: {
-        type: String,
-        require: [true, '...'],
-        unique: true,
-        lowercase: true,
-        trim: true
-    },
-    password: {
-        type: String,
-        require: [true, '...'],
-    },
-    cartItems: [
-        {
-            quantity: Number,
-            default: 1    
-        },
-        {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "Product"
-        }
-    ],
-    role: {
-        type: String,
-        enum: ['customer', 'admin'],
-        default: 'customer'
-    } 
-},{
-    timestamps: true
-}
-
-)
-
-// mã hóa mật khẩu trước khi lưu vào database
-userSchema.pre("save", async function(next) {
-    if(!this.Modified(this.password)) return next()
-    try {
-        const salt = await bcrypt.salt(10);
-        this.password = await bcrypt.hash(this.password, salt);
-        next();
-    } catch(error) {
-        next(error);
-    }
-})
-
-// check login password là mk nhập, this.password là mật khẩu trong dữ liệu
-userSchema.methods.compare = async function(password) {
-    return bcrypt.compare(password, this.password);
-}
-
-// tạo model User với dữ liệu userSchema
-const User = mongoose.model('User', userSchema)
-
-export default User
-
-## Logic signup
-
-// Lấy dữ liệu từ req.body (tức lấy ở phần nhập fe)
-const { name, email, password } = req.body
-
-<!-- Nếu email tồn tại -->
-const userExists = await User.findOne({email});
-
-<!-- Thì sẽ trả về thông báo 400 -->
-if(userExists) {
-    return res.status(400).json('Email already exists');
-}
-
-<!-- Còn không tồn tại thì sẽ tạo 1 object -->
-const user = await User.create({
-    name, email, password
-})
-
-<!-- Và trả về thông báo 201 tức là đã tạo thành công -->
-res.status(201).json(user, message: "Create Success")
-
-# Redis
-
-import Redis from "ioredis"
-import dotenv from "dotenv"
-
-dotenv.config()
-
-// Kết nối redis bằng upstash
-const redis = new Redis(process.env.UPSTASH_REDIS_URL);
-
-// key-value store (truy vấn foo sẽ trả về bar)
-await redis.set('foo', 'bar');
-
-Run terminal: node .\backend\lib\redis.js
-Xem ở tab: Data Browsers
-
-# Access Token Và Refresh Token
-
-(Lý do tại sao khi mà lưu refreshToken trong cookie rồi thì dùng redis làm gì: Có thể kiểm soát phiên đăng nhập của người dùng ta có thể giúp người dùng đăng xuất luôn, bảo mật tránh các hành vi tấn công)
-
-const generateTokens = (userId) => {
-    const accessToken = jwt.sign({userId}, ACCESS_TOKEN_SECRET, {
-        expiresIn: "15m"
-    })
-    const refreshToken = jwt.sign({userId}, REFRESH_TOKEN_SECRET, {
-        expiresIn: "7d"
-    })
-    return { accessToken, refreshToken }
-}
-
-// Dùng redis bởi vì nó có tự động hết hạn EX giúp tự động xóa token phải đăng nhập lại để lấy refreshtoken mới và bảo mật chống hacker tốt hơn
-const storeRefreshToken =  async(userId, refreshToken) => {
-    await redis.set(`refreshToken:${userId}`, refreshToken, "EX", 7*24*60*60) // 7 days
-}
-
-const setCookies = (res, accessToken, refreshToken) => {
-    res.cookie('accessToken', accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-        maxAge: 15 * 60 * 1000 // 15 minutes
-    })
-
-    res.cookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-        maxAge: 7 * 24 * 60 * 60 // 7 days
-    })
-}
-
-const signup = () => {
-    ....
-
-    const user_id = ...
-
-    const {accessToken, refreshToken} = generateTokens(user._id) // tạo 
-    await storeRefreshToken(user._id, refreshToken) // gia hạn
-
-    setCookies(res, accessToken, refreshToken) // lưu access, refresh vào cookie
-
-}
-* Hàm generateTokens
-- Hiểu phiên đăng nhập sẽ tồn tại trong 7 ngày
-- Access token được thay đổi mỗi 15p, access token hết hạn thì refresh token gửi đi nhận 1 access token mới
--> Nhằm mục đích bảo mật, nếu có hacker lấy được access token họ chỉ có thể sử dụng trong 15p
-
-* Hàm storeRefreshToken
-- redis.set(key, value, "EX", time)
-"EX": hết hạn
-
-* Hàm setCookies
-
-res.cookie('accessToken', accessToken, {
-    httpOnly: true, // ngăn không cho javascript truy cập cookie(chống tấn công XSS)
-    secure: process.env.NODE_ENV === "production", // chỉ bật chế độ bảo mật khi ở chế độ production
-    sameSite: "strict", // ngăn không cho cookie gửi đến từ các trang web khác (chống tấn công csrf)
-    maxAge: 15 * 60 * 1000 // 15 minutes
-})
-
-# Logic logout
-
-file server: CookieParser // dùng để chuyển trạng thái sang javascript nhằm decode
-             import cookieParser from 'cookie-parser';
-             app.use(cookieParser());
-----
-
-export const logout = async function() {
-    try{
-        const refreshToken = req.cookies.refreshToken;
-        if(refreshToken) {
-            const decode = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET) // dịch mã token
-            await redis.del(`refreshToken:${decode.userId}`) // xóa refreshToken
-        }
-        res.clearCookie('accessToken')
-        res.clearCookie('refreshToken')
-        res.json({Logged out successfully !!!})
-    } catch(error) {
-        res.status(500).json({message: "Server Error", error: error.message})
-    }
-} 
-
-# Logic Refresh Token
-
-export const refreshToken = async (req, res) => {
-	try {
-		const refreshToken = req.cookies.refreshToken;
-
-		if (!refreshToken) {
-			return res.status(401).json({ message: "No refresh token provided" });
-		}
-
-		const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
-		const storedToken = await redis.get(`refreshToken:${decoded.userId}`);
-
-		if (storedToken !== refreshToken) {
-			return res.status(401).json({ message: "Invalid refresh token" });
-		}
-
-		const accessToken = jwt.sign({ userId: decoded.userId }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "15m" });
-
-		res.cookie("accessToken", accessToken, {
-			httpOnly: true,
-			secure: process.env.NODE_ENV === "production",
-			sameSite: "strict",
-			maxAge: 15 * 60 * 1000,
-		});
-
-		res.json({ message: "Token refreshed successfully" });
-	} catch (error) {
-		console.log("Error in refreshToken controller", error.message);
-		res.status(500).json({ message: "Server error", error: error.message });
-	}
-};
-
-- Lấy ra refreshToken trong cookie và decode để lấy refreshtoken trong redis sau đó so sánh với nhau nếu không giống thì báo lỗi
-- Còn không vào trường hợp trên thì tạo accesstoken sau đó lưu vào cookie
-
-# Logic Login
-
-export const login = async (req, res) => {
-	try {
-		const { email, password } = req.body;
-		const user = await User.findOne({ email });
-
-		if (user && (await user.comparePassword(password))) {
-			const { accessToken, refreshToken } = generateTokens(user._id);
-			await storeRefreshToken(user._id, refreshToken);
-			setCookies(res, accessToken, refreshToken);
-
-			res.json({
-				_id: user._id,
-				name: user.name,
-				email: user.email,
-				role: user.role,
-			});
-		} else {
-			res.status(400).json({ message: "Invalid email or password" });
-		}
-	} catch (error) {
-		console.log("Error in login controller", error.message);
-		res.status(500).json({ message: error.message });
-	}
-};
-
-- Lấy ra email và password sau đó check có tồn tại hay không nếu tồn tại thì sẽ lưu accessToken và refreshToken
-
-# Logic Product và middleware có tồn tại access token không và check quyền
-
-1 router
-
-router.get('/', protectRouter, adminRouter, getAllProducts)
-
-- controller:
-
-export const getAllProducts = async (req, res) => {
-    try{
-        const product = await Product.find({});
-        res.json({product})
-    }catch(error) {
-        return res.status(400).json({message: 'Error server', error: error.message});
-    }
-}
-
-- middleware: (trong middleware có 1 tham số là next) nếu dùng next nó sẽ chuyển tiếp tới hàm middleware tiếp theo
-Ví dụ ở trên là: router.get('/', protectRouter, adminRouter, getAllProducts) thí dụ mà xong hàm protectRouter gọi hàm next() thì nó sẽ chuyển tiếp tới hàm tiếp theo
-
-export const protectRouter = async (req, res, next) => {
-    try {
-        const accessToken = req.cookies.accessToken;
-        if(!accessToken) {
-            return res.status(401).json('AccessToken is not defined');
-        }
-        try {
-            const decode = jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET);
-            const user = jwt.findById(decode.userId).select('-password'); // .select('-password) được hiểu là không lấy password
-            if(!user) {
-                return res.json('User is not defined');
-            }
-            req.body = user
-            next(); // chuyển tiếp hàm middleware tiếp theo
-        } catch(error) {
-            if(error.name === "TokenExpiredError") // kiểm tra xem đã hết hạn accessToken hay chưa {
-                return res.status(401).json({message: "Unauthorized - Access token expired"});
-            }
-            throw error 
-        }
-
-    } catch(error) {
-        return res.status(500).json('Unauthorized - Invalid access token')
-    }
-}
-
-export const adminRouter = async (req, res, next) => {
-    try{
-        if(req.user && req.user.role === "admin") {
-            next();
-        } else {
-            return res.status(401).json({message: 'Access denied - Admin only'})
-        }
-    }
-}
-
-## get Featured Product 
-
-export const getFeaturedProduct = (req, res) => {
-    try{
-        let featuredProduct = redis.get('featuredProduct')
-        if(featuredProduct) {
-            return res.json(JSON.parse(featuredProduct))
-        }
-        <!-- Nếu không có trên redis thì lấy từ mongodb những sản phẩm có isFeatured: true, .lean để dữ liệu mongodb thành plain object(nhanh hơn, tiết kiệm bộ nhớ) -->
-        featuredProduct = await Product.find({isFeatured: true}).lean();
- 
-        if(!featuredProduct) {
-            return res.status(404).json({message: "No featured products found"});
-        }
-
-        await redis.set('featuredProduct', JSON.stringify(featuredProduct))
-
-    }catch(error) {
-        return res.status(500).json({ message: "Server Error", error: error.message });
-    }
-}
-
-# Tạo Product
-
-export const createProducts = async (req, res) => {
-    try{
-        const {name, description, price, image, category} = req.body;
-        if(image) {
-            const cloudinaryResponse = cloudinary.uploader.upload(image, {folder: "product"}); 
-            // nếu có image (tức đã chọn file trong fe) thì sẽ tải ảnh lên cloudinary và lưu vào thư mục product
-        }
-        const product = await Product.create({
-            name,
-            description,
-            price,
-            image: cloudinaryResponse?.secure ? cloudinaryResponse.secure : "",
-            <!-- Nếu có ảnh trong cloudinary thì hiện ảnh còn không bằng chuỗi rỗng -->
-            category
-        });
-    } catch(error) {
-        return res.status(500).json({message: 'Server Error', error: error.message});
-    }
-}
-
-# Logic delete
-
-export const deleteProduct = async (req, res) => {
-    try{
-        const product = User.findById(req.params.id)
-        if(product.image) {
-            const publicId = product.image.split('/').pop().split('.')[0];
-            try{
-                await cloudinary.uploader.destroy(`products/${publicId}`);
-                // vd có link: https://res.cloudinary.com/demo/image/upload/v1672524523/product/abc123.jpg
-                // split("/").pop(): split để chia url thành mảng dựa trên dấu / (hiểu [demo,image,...])
-                // .pop(): là lấy phầm tử cuối tức là abc123.jpg
-                // .split("."): là [abc123, jpg]
-                // .split(".")[0]: là abc123 => bên dưới sẽ xóa product/abc123
-                res.status(200).json({message: 'Delete success'});
-            }catch(error) {
-                res.status(404).json('No deleting image')
-            }
-        }
-        await findByIdAndDelete(req.params.id)
-        res.json('')
-    }catch(error) {
-        return res.status(500).
-    }
-}
-
-<!-- -------------------------------- FRONT-END --------------------------------- -->
-
-store Zustand file useUserStore.jsx:
-
-import {create} from "zustand";
-import axios from '../lib/axios.js';
-import {toast} from "react-hot-toast";
-
-export const useUserStore = create((set, get) => ({
-    user: null,
-    loading: false,
-    checkingAuth: true,
-    signup: async ({name, email, password, confirmPassword}) => {
-        set({loading: true});
-        if(password !== confirmPassword) {
-            set({loading: false})
-            return toast.error("Mật khẩu không giống nhau");
-        }
-        try {
-            const res= await axios.post('api/signup', {name, email, password});
-            set({user: res.data.user, loading: false})
-        } catch (error) {
-            set({loading: false})
-            toast.error(error.response.data.message || "An error occurred");
-        }
-    },
-})) 
-
-- Hiểu ở đây ta đang tạo ra 1 hook chứa các hàm xử lý bên trong, nếu muốn gọi ra dùng thì sẽ gọi ra như sau const {signup} = useUserStore() được hiểu là lấy hàm xử lý signup
-
-- Bên file gọi ta đang có dữ liệu từ formData:
-
- const handleSubmit = (e) => {
-    e.preventDefault();
-    signup(formData);
-  }
-
-=> nó sẽ truyền vào hàm đó các dữ liệu và lấy ra theo props ({name,...}) => {...}
-
-* Giải thích qua về hàm signup:
-- if(password !== confirmPassword): kiểm tra xem có giống nhau hay không, không giống thì thông báo 2 trường mk không giống nhau
-- const res= await axios.post('api/signup', {name, email, password}); : post api với phương thức có sẵn trong axios
-- create dùng để tạo ra 1 store toàn cục
-- set dùng để cập nhật trạng thái hiện tại
-- get dùng để lấy trạng thái hiện tại
-
-Tiếp theo là sử dụng toast để thông báo: return toast.error("Mật khẩu không giống nhau");
-Ta sẽ khai báo <Toast /> này ở App.jsx để có thể thông báo mọi cái nhưng cần setup ở từng logic
+# E-Commerce
+
+🚀 e-commerce using React.js, Node.js, Stripe, and Redis.
+
+## 📌 Features
+- 🗄️ **MongoDB & Redis Integration** for efficient data handling
+- 💳 **Stripe Payment Gateway** for secure transactions
+- 🔐 **JWT Authentication** with Refresh/Access Tokens
+- 📝 **User Signup & Login System**
+- 🛒 **Shopping Cart & Checkout** with Stripe
+- 📦 **Product & Category Management**
+- 💰 **Coupon Code System** for discounts
+- 👑 **Admin Dashboard** with product and order management
+- 📊 **Sales Analytics & Reports**
+- 🎨 **Tailwind CSS** for responsive UI design
+- 🚀 **Caching with Redis** for performance optimization
+- 🔒 **Security & Data Protection**
+
+## 📂 Project Setup
+### 1️⃣ Clone the Repository
+```bash
+git clone https://github.com/nghiahd147/Fullstack-Ecommerce.git
+cd Fullstack-Ecommerce
+```
+
+### 2️⃣ Install Dependencies
+#### Backend:
+```bash
+cd backend
+npm install
+```
+#### Frontend:
+```bash
+cd frontend
+npm install
+```
+
+### 3️⃣ Configure Environment Variables
+Create a `.env` file in the `backend` directory with the following:
+```
+MONGO_URI=your_mongodb_connection_string
+REDIS_URI=your_redis_connection_string
+STRIPE_SECRET_KEY=your_stripe_secret_key
+JWT_SECRET=your_jwt_secret
+```
+
+### 4️⃣ Start the Development Server
+#### Backend:
+```bash
+npm run dev
+```
+#### Frontend:
+```bash
+npm start
+```
+
+### 5️⃣ Access the Application
+- **Frontend**: `http://localhost:3000`
+- **Backend API**: `http://localhost:5000`
+
+## 📜 License
+This project is open-source and available for modification and distribution.
+
+---
+
+💡 **Need Help?** Feel free to open an issue or contribute to the project!
